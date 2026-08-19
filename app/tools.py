@@ -11,6 +11,7 @@ Tools агента: get_car_details, search_cars, assess_car_risk.
 import json
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from urllib.parse import urlencode
 
@@ -234,6 +235,12 @@ def search_cars(
     певної марки або моделі та відфільтрувати їх за роком, поточною ставкою
     або пробігом.
 
+    Результат містить total_lots_in_catalog (скільки лотів взагалі є на сайті
+    за маркою/моделлю) і lots_scanned (скільки з них реально перевірено на
+    відповідність критеріям — сканування обмежене, щоб відповідь не була
+    надто довгою). Якщо total_lots_in_catalog > lots_scanned, обов'язково
+    повідом користувачу, що переглянуто не всі наявні лоти.
+
     Поточна ставка на аукціоні не є фінальною ціною автомобіля.
     Значення $0 також не означає, що автомобіль безкоштовний.
     """
@@ -257,9 +264,16 @@ def search_cars(
             lot_links.append(href)
     lot_links = list(dict.fromkeys(lot_links))
 
-    matched_cars = []
+    total_lots_found = len(lot_links)
 
-    for link in lot_links:
+    # Обмежуємо кількість сторінок, які реально скануємо: якщо каталог
+    # повертає забагато лотів, повне послідовне сканування може тривати
+    # надто довго і хостинг обірве з'єднання. Скануємо перші N.
+    lot_links = lot_links[:settings.SEARCH_MAX_LOTS]
+
+    def _process_lot(link: str) -> dict | None:
+        """Завантажує й фільтрує один лот. Повертає None, якщо не підходить."""
+
         full_url = link if link.startswith("http") else "https://factum-auto.com" + link
 
         try:
@@ -274,11 +288,11 @@ def search_cars(
             mileage = extract_mileage(specs.get("Пробіг"))
 
             if min_year is not None and (year is None or year < min_year):
-                continue
+                return None
             if max_price is not None and (price is None or price > max_price):
-                continue
+                return None
             if max_mileage is not None and (mileage is None or mileage > max_mileage):
-                continue
+                return None
 
             if price == 0:
                 price_status = (
@@ -290,7 +304,7 @@ def search_cars(
             else:
                 price_status = f"Поточна ставка: ${price:,}. Це не фінальна вартість автомобіля."
 
-            matched_cars.append({
+            return {
                 "year": year,
                 "price": price,
                 "price_status": price_status,
@@ -303,16 +317,28 @@ def search_cars(
                 "keys": specs.get("Ключі"),
                 "document_type": lot_info.get("Тип документа"),
                 "url": full_url
-            })
+            }
 
         except Exception as e:
             # Одна невдала сторінка не повинна валити весь пошук
             print(f"Не вдалося обробити {full_url}: {e}")
+            return None
 
-        time.sleep(settings.SCRAPE_DELAY_SECONDS)
+    matched_cars = []
+
+    # Скануємо лоти паралельно замість послідовно — це на порядок швидше
+    # і дозволяє вкластись у таймаут хостингу.
+    with ThreadPoolExecutor(max_workers=settings.SEARCH_MAX_WORKERS) as executor:
+        futures = [executor.submit(_process_lot, link) for link in lot_links]
+        for future in as_completed(futures):
+            car_data = future.result()
+            if car_data is not None:
+                matched_cars.append(car_data)
 
     result = {
         "catalog_url": catalog_url,
+        "total_lots_in_catalog": total_lots_found,
+        "lots_scanned": len(lot_links),
         "found": len(matched_cars),
         "cars": matched_cars
     }
