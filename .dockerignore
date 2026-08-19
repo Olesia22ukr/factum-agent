@@ -1,0 +1,10 @@
+__pycache__
+*.pyc
+.env
+.git
+.gitignore
+*.ipynb
+homework_submission*
+trajectory*.json
+test_results.json
+.venv
