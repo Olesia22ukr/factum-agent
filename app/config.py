@@ -14,13 +14,19 @@ class Settings:
     OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-4.1")
 
     # Захисні механізми агента
-    AGENT_MAX_STEPS: int = int(os.environ.get("AGENT_MAX_STEPS", "30"))
-    AGENT_TIMEOUT_SECONDS: float = float(os.environ.get("AGENT_TIMEOUT_SECONDS", "150"))
+    AGENT_MAX_STEPS: int = int(os.environ.get("AGENT_MAX_STEPS", "20"))
+    AGENT_TIMEOUT_SECONDS: float = float(os.environ.get("AGENT_TIMEOUT_SECONDS", "60"))
 
     # Скрапінг
     HTTP_TIMEOUT_SECONDS: float = float(os.environ.get("HTTP_TIMEOUT_SECONDS", "15"))
     HTTP_MAX_RETRIES: int = int(os.environ.get("HTTP_MAX_RETRIES", "3"))
     SCRAPE_DELAY_SECONDS: float = float(os.environ.get("SCRAPE_DELAY_SECONDS", "0.3"))
+
+    # Обмеження на пошук — щоб один запит не тривав надто довго
+    # (безкоштовні хостинги на кшталт Render обривають з'єднання,
+    # якщо відповідь готується довше ~30 секунд)
+    SEARCH_MAX_LOTS: int = int(os.environ.get("SEARCH_MAX_LOTS", "20"))
+    SEARCH_MAX_WORKERS: int = int(os.environ.get("SEARCH_MAX_WORKERS", "8"))
 
     # Ліміт на кількість повідомлень в історії однієї сесії
     # (щоб не роздувати вартість запитів до OpenAI)
